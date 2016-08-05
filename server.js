@@ -2,7 +2,8 @@ var express = require('express');
 var bodyParser = require('body-parser');
 var _ = require('underscore');
 var bcrypt = require('bcryptjs');
-var db = require('./db.js')
+var db = require('./db.js');
+var middleware = require('./middleware.js')(db);
     
 var app = express();
 var PORT = process.env.PORT || 3000;
@@ -16,7 +17,7 @@ app.get('/', function(req,res){
 })
 
 // GET /todos?completed=true&q=house
-app.get('/todos', function(req,res){
+app.get('/todos', middleware.requireAuthentication, function(req,res){
     var query = req.query;
     var where = {};
     if (query.hasOwnProperty('completed') && query.completed === 'true') {
@@ -40,7 +41,7 @@ app.get('/todos', function(req,res){
 });
 
 // GET /todos/:id
-app.get('/todos/:id', function (req, res) {
+app.get('/todos/:id', middleware.requireAuthentication, function (req, res) {
     var todoId = parseInt(req.params.id, 10);
     db.todo.findById(todoId).then(function (todo) {
         if (!!todo) {
@@ -55,7 +56,7 @@ app.get('/todos/:id', function (req, res) {
 })
 
 // POST /todo
-app.post('/todos',function(req,res){
+app.post('/todos', middleware.requireAuthentication, function(req,res){
     
     var body = _.pick(req.body,'description','completed');
 
@@ -67,7 +68,7 @@ app.post('/todos',function(req,res){
 });
 
 // DELETE /todos/:id
-app.delete('/todos/:id', function (req, res) {
+app.delete('/todos/:id', middleware.requireAuthentication, function (req, res) {
     var todoId = parseInt(req.params.id, 10);
 
     db.todo.destroy({
@@ -88,7 +89,7 @@ app.delete('/todos/:id', function (req, res) {
 })
 
 // PUT /todos/:id
-app.put('/todos/:id', function (req, res) {
+app.put('/todos/:id', middleware.requireAuthentication, function (req, res) {
     console.log('Express listneing on port ' + PORT + '!');
     var todoId = parseInt(req.params.id, 10);
     var body = _.pick(req.body, 'description', 'completed');
@@ -129,21 +130,15 @@ app.post('/users',function(req,res){
 // POST : user/login
 app.post('/users/login', function (req, res) {
     var body = _.pick(req.body, 'email', 'password');
-    if (typeof body.email !== 'string' || typeof body.password !== 'string') {
-        return res.status(400).send();
-    }
-    db.user.findOne({
-        where: {
-            email: body.email
+    db.user.authenticate(body).then(function (user) {
+        var token = user.generateToken('authentication');
+        if(token){
+            res.header('Auth', token).json(user.toPublicJSON());
+        }else{
+            res.status(401).send();
         }
-    }).then(function (user) {
-        if (!user || !bcrypt.compareSync(body.password, user.get('password_hash'))) {
-            return res.status(401).send();
-        }
-
-        res.json(user.toPublicJSON());
-    }, function (e) {
-        res.status(500).send();
+    }, function () {
+        res.status(401).send();
     });
 });
 
